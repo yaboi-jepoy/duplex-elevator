@@ -21,8 +21,6 @@ struct Elevator {
     int candidateButton = 0;
     int stableButton = 0;
     uint32_t candidateSince = 0;
-    uint32_t lastAdcLog = 0;
-    uint32_t lastStatusLog = 0;
     uint32_t lastStepUs = 0;
 
     Elevator(char name, uint8_t adcPin, const uint8_t *motorPins)
@@ -64,12 +62,8 @@ static void releaseMotor(const Elevator &e) {
 static void requestFloor(Elevator &e, int floor) {
     e.targetFloor = floor;
     e.targetSteps = (floor - 1) * STEPS_PER_FLOOR;
-    logLine("Car %c to Floor %d | current estimated floor: %d | position: %ld steps | target: %ld steps",
-            e.name, floor, e.currentFloor,
-            (long)e.positionSteps, (long)e.targetSteps);
     if (e.positionSteps == e.targetSteps) {
         e.moving = false;
-        logLine("Car %c is already at Floor %d", e.name, floor);
     } else {
         e.moving = true;
     }
@@ -78,12 +72,6 @@ static void requestFloor(Elevator &e, int floor) {
 static void pollButtons(Elevator &e, uint32_t nowMs) {
     const int voltageMv = analogReadMilliVolts(e.adcPin);
     const int rawButton = decodeFloor(voltageMv);
-
-    if (LOG_ADC && (uint32_t)(nowMs - e.lastAdcLog) >= ADC_LOG_INTERVAL_MS) {
-        e.lastAdcLog = nowMs;
-        logLine("Car %c ADC: %d mV | decoded button: %d | position: %ld steps",
-                e.name, voltageMv, rawButton, (long)e.positionSteps);
-    }
 
     if (rawButton != e.candidateButton) {
         e.candidateButton = rawButton;
@@ -113,25 +101,15 @@ static void updateMotor(Elevator &e, uint32_t nowUs) {
         e.moving = false;
         e.currentFloor = e.targetFloor;
         releaseMotor(e); // Demo only: removes holding torque.
-        logLine("Car %c ARRIVED at Floor %d | %ld steps | motor released",
-                e.name, e.currentFloor, (long)e.positionSteps);
     }
 }
 
 static void elevatorTask(void *arg) {
     Elevator &e = *static_cast<Elevator *>(arg);
-    logLine("Car %c FreeRTOS task started; assumed initial location: Floor 1", e.name);
     for (;;) {
         const uint32_t nowMs = millis();
         pollButtons(e, nowMs);
         updateMotor(e, micros());
-
-        if ((uint32_t)(nowMs - e.lastStatusLog) >= STATUS_LOG_INTERVAL_MS) {
-            e.lastStatusLog = nowMs;
-            logLine("Car %c STATUS: %s | last floor: %d | target: %d | step: %ld",
-                    e.name, e.moving ? "MOVING" : "IDLE",
-                    e.currentFloor, e.targetFloor, (long)e.positionSteps);
-        }
         vTaskDelay(1); // Yield; both tasks run independently.
     }
 }
@@ -148,12 +126,6 @@ void setup() {
 
     for (uint8_t pin : MOTOR_A_PINS) { pinMode(pin, OUTPUT); digitalWrite(pin, LOW); }
     for (uint8_t pin : MOTOR_B_PINS) { pinMode(pin, OUTPUT); digitalWrite(pin, LOW); }
-
-    logLine("Duplex Elevator prototype starting (ESP32-S3 dual core)");
-    logLine("Position calibration: each car starts at FLOOR 1; %ld half-steps per floor",
-            (long)STEPS_PER_FLOOR);
-    logLine("Controls: A=GPIO%d, B=GPIO%d; ADC logging %s",
-            PIN_BUTTON_A, PIN_BUTTON_B, LOG_ADC ? "ON" : "OFF");
 
     BaseType_t a = xTaskCreatePinnedToCore(elevatorTask, "ElevatorTaskA", 4096,
                                           &carA, 2, nullptr, 0);
