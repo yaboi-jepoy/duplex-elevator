@@ -17,7 +17,17 @@ constexpr int FLOOR2_MAX_MV = 1080;
 constexpr int FLOOR3_MIN_MV = 1150;
 constexpr int FLOOR3_MAX_MV = 1650;
 
-// Start with the car physically at Floor 1. Adjust after testing spool.
-constexpr int32_t STEPS_PER_FLOOR = 1024;
-constexpr uint32_t HALFSTEP_INTERVAL_US = 3000;
+// The car starts at MIN_HEIGHT_MM (Floor 1). Floor 2 and Floor 3 are
+// automatically spaced between MIN_HEIGHT_MM and MAX_HEIGHT_MM.
+constexpr float MIN_HEIGHT_MM = 0.0f;
+constexpr float MAX_HEIGHT_MM = 381.0f; // About 15 inches of travel.
+constexpr uint8_t FLOOR_COUNT = 3;
+constexpr float SPOOL_DIAMETER_MM = 25.0f;
+constexpr uint32_t MOTOR_HALFSTEPS_PER_REV = 4096;
+constexpr float MOTOR_SPEED_RPM = 15.0f;
+constexpr uint32_t HALFSTEP_INTERVAL_US = static_cast<uint32_t>(
+    60000000.0f / (MOTOR_SPEED_RPM * MOTOR_HALFSTEPS_PER_REV));
 constexpr uint32_t BUTTON_DEBOUNCE_MS = 50;
+
+static_assert(MAX_HEIGHT_MM > MIN_HEIGHT_MM, "MAX_HEIGHT_MM must exceed MIN_HEIGHT_MM");
+static_assert(MOTOR_SPEED_RPM > 0.0f, "MOTOR_SPEED_RPM must be positive");

@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <math.h>
 #include <stdarg.h>
 #include "config.h"
 
@@ -59,9 +60,22 @@ static void releaseMotor(const Elevator &e) {
     for (int i = 0; i < 4; i++) digitalWrite(e.motorPins[i], LOW);
 }
 
+static int32_t stepsAtHeight(float heightMm) {
+    const float spoolCircumferenceMm = PI * SPOOL_DIAMETER_MM;
+    const float cableRevolutions = (heightMm - MIN_HEIGHT_MM) / spoolCircumferenceMm;
+    return static_cast<int32_t>(lroundf(cableRevolutions * MOTOR_HALFSTEPS_PER_REV));
+}
+
+static int32_t stepsForFloor(int floor) {
+    const int clampedFloor = constrain(floor, 1, FLOOR_COUNT);
+    const float floorHeightMm = MIN_HEIGHT_MM +
+        (MAX_HEIGHT_MM - MIN_HEIGHT_MM) * (clampedFloor - 1) / (FLOOR_COUNT - 1);
+    return stepsAtHeight(floorHeightMm);
+}
+
 static void requestFloor(Elevator &e, int floor) {
     e.targetFloor = floor;
-    e.targetSteps = (floor - 1) * STEPS_PER_FLOOR;
+    e.targetSteps = stepsForFloor(floor);
     if (e.positionSteps == e.targetSteps) {
         e.moving = false;
     } else {
@@ -80,7 +94,7 @@ static void pollButtons(Elevator &e, uint32_t nowMs) {
     if (rawButton != e.stableButton &&
         (uint32_t)(nowMs - e.candidateSince) >= BUTTON_DEBOUNCE_MS) {
         e.stableButton = rawButton;
-        if (rawButton >= 1 && rawButton <= 3) {
+        if (rawButton >= 1 && rawButton <= FLOOR_COUNT) {
             logLine("Car %c: Floor %d button pressed (%d mV)", e.name, rawButton, voltageMv);
             requestFloor(e, rawButton);
         }
@@ -126,6 +140,16 @@ void setup() {
 
     for (uint8_t pin : MOTOR_A_PINS) { pinMode(pin, OUTPUT); digitalWrite(pin, LOW); }
     for (uint8_t pin : MOTOR_B_PINS) { pinMode(pin, OUTPUT); digitalWrite(pin, LOW); }
+
+    logLine("Configured travel: %.1f mm, spool: %.1f mm, floor spacing: %.1f mm",
+            MAX_HEIGHT_MM - MIN_HEIGHT_MM, SPOOL_DIAMETER_MM,
+            (MAX_HEIGHT_MM - MIN_HEIGHT_MM) / 2.0f);
+    logLine("Motor speed: %.1f RPM (%lu us per half-step)",
+            MOTOR_SPEED_RPM, static_cast<unsigned long>(HALFSTEP_INTERVAL_US));
+    logLine("Target positions: F1=%ld, F2=%ld, F3=%ld half-steps",
+            static_cast<long>(stepsForFloor(1)),
+            static_cast<long>(stepsForFloor(2)),
+            static_cast<long>(stepsForFloor(3)));
 
     BaseType_t a = xTaskCreatePinnedToCore(elevatorTask, "ElevatorTaskA", 4096,
                                           &carA, 2, nullptr, 0);
